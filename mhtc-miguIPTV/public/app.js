@@ -1,0 +1,351 @@
+var state = {
+    allChannels: [],
+    filteredChannels: [],
+    selectedUrls: new Set(),
+    categories: [],
+    selectedCategories: [],
+    searchKeyword: '',
+    savedPlaylists: [],
+    sources: [],
+    isLoading: false,
+    editingPlaylistId: null
+};
+var searchTimer = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadStatus();
+    loadChannels();
+    loadSavedPlaylists();
+    loadSources();
+    setInterval(loadStatus, 30000);
+});
+
+// ===== API =====
+function api(url) { return fetch(url).then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+function apiPost(url, body) { return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+function apiDel(url) { return fetch(url, { method: 'DELETE' }).then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+function apiPut(url, body) { return fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+
+// ===== 通用 =====
+function escapeHtml(t) { var d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function copyUrl(url) {
+    if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function() { toast('已复制', 'success'); }).catch(function() { fallbackCopy(url); }); }
+    else { fallbackCopy(url); }
+}
+function fallbackCopy(t) { var ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); toast('已复制', 'success'); }
+function toast(msg, type) {
+    var c = document.getElementById('toastContainer');
+    var t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(function() { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(function() { t.remove(); }, 300); }, 4000);
+}
+
+// ===== 状态 =====
+function loadStatus() {
+    api('/api/status').then(function(data) {
+        document.getElementById('totalChannels').textContent = data.totalChannels || '-';
+        document.getElementById('totalCategories').textContent = data.totalCategories || '-';
+        document.getElementById('lastUpdated').textContent = data.lastUpdated ? new Date(data.lastUpdated).toLocaleString('zh-CN') : '-';
+        var dot = document.getElementById('statusDot');
+        var txt = document.getElementById('statusText');
+        if (data.error) { dot.className = 'status-dot error'; txt.textContent = '获取失败'; }
+        else if (data.lastUpdated) { dot.className = 'status-dot online'; var e = Math.floor((Date.now() - new Date(data.lastUpdated).getTime()) / 1000); txt.textContent = e < 60 ? '刚刚更新' : Math.floor(e / 60) + ' 分钟前更新'; }
+        else { dot.className = 'status-dot loading'; txt.textContent = '等待数据...'; }
+    }).catch(function() {
+        document.getElementById('statusDot').className = 'status-dot error';
+        document.getElementById('statusText').textContent = '连接失败';
+    });
+}
+
+// ===== 频道 =====
+function loadChannels() {
+    state.isLoading = true;
+    renderChannels();
+    api('/api/channels').then(function(data) {
+        state.allChannels = data.channels || [];
+        state.categories = data.categories || [];
+        if (state.selectedCategories.length === 0) state.selectedCategories = state.categories.slice();
+        state.selectedCategories = state.selectedCategories.filter(function(c) { return state.categories.indexOf(c) >= 0; });
+        renderCategoryTags();
+        applyFilters();
+    }).catch(function(e) {
+        document.getElementById('channelList').innerHTML = '<div class="error-message">加载失败: ' + escapeHtml(e.message) + '</div>';
+    }).then(function() { state.isLoading = false; });
+}
+
+// ===== 分类 =====
+function renderCategoryTags() {
+    var c = document.getElementById('categoryTags');
+    c.innerHTML = '';
+    state.categories.forEach(function(cat) {
+        var tag = document.createElement('span');
+        tag.className = 'category-tag' + (state.selectedCategories.indexOf(cat) >= 0 ? ' active' : '');
+        tag.textContent = cat;
+        tag.onclick = function() { toggleCategory(cat); };
+        c.appendChild(tag);
+    });
+}
+function toggleCategory(cat) {
+    var idx = state.selectedCategories.indexOf(cat);
+    if (idx >= 0) state.selectedCategories.splice(idx, 1);
+    else state.selectedCategories.push(cat);
+    renderCategoryTags();
+    applyFilters();
+}
+function selectAllCategories(yes) {
+    state.selectedCategories = yes ? state.categories.slice() : [];
+    renderCategoryTags();
+    applyFilters();
+}
+
+// ===== 搜索 =====
+function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function() {
+        state.searchKeyword = document.getElementById('searchInput').value.trim();
+        applyFilters();
+    }, 300);
+}
+function clearSearch() {
+    document.getElementById('searchInput').value = '';
+    state.searchKeyword = '';
+    applyFilters();
+}
+
+// ===== 过滤 =====
+function applyFilters() {
+    var r = state.allChannels.slice();
+    if (state.selectedCategories.length > 0) r = r.filter(function(c) { return state.selectedCategories.indexOf(c.group) >= 0; });
+    if (state.searchKeyword) { var kw = state.searchKeyword.toLowerCase(); r = r.filter(function(c) { return c.name.toLowerCase().indexOf(kw) >= 0; }); }
+    state.filteredChannels = r;
+    renderChannels();
+    updateStats();
+}
+
+// ===== 勾选 =====
+function toggleSelect(item, ch) {
+    if (item.classList.contains('selected')) {
+        item.classList.remove('selected');
+        state.selectedUrls.delete(ch.url);
+    } else {
+        item.classList.add('selected');
+        state.selectedUrls.add(ch.url);
+    }
+    var cb = item.querySelector('.channel-checkbox');
+    if (cb) cb.checked = item.classList.contains('selected');
+    updateStats();
+}
+function selectAllFiltered(yes) {
+    state.filteredChannels.forEach(function(ch) {
+        if (yes) state.selectedUrls.add(ch.url);
+        else state.selectedUrls.delete(ch.url);
+    });
+    renderChannels();
+    updateStats();
+}
+
+// ===== 渲染频道 =====
+function renderChannels() {
+    var container = document.getElementById('channelList');
+    if (state.isLoading) { container.innerHTML = '<div class="loading-message">加载频道数据中...</div>'; return; }
+    if (state.allChannels.length === 0) { container.innerHTML = '<div class="loading-message">暂无频道数据，请确认数据源</div>'; return; }
+    if (state.filteredChannels.length === 0) { container.innerHTML = '<div class="empty-message">没有匹配的频道</div>'; return; }
+    var allSelected = state.filteredChannels.every(function(ch) { return state.selectedUrls.has(ch.url); });
+    var html = '<div class="channel-list-toolbar"><label class="toolbar-checkall"><input type="checkbox" onchange="selectAllFiltered(this.checked)" ' + (allSelected ? 'checked' : '') + '><span>全选/取消</span></label><span class="toolbar-actions"><button class="btn btn-small" onclick="selectAllFiltered(true)">全勾</button><button class="btn btn-small" onclick="selectAllFiltered(false)">全取消</button></span></div><div class="channel-list-items" id="channelListItems">';
+    container.innerHTML = html;
+    var items = document.getElementById('channelListItems');
+    state.filteredChannels.forEach(function(ch) {
+        var sel = state.selectedUrls.has(ch.url);
+        var item = document.createElement('div');
+        item.className = 'channel-item' + (sel ? ' selected' : '');
+        item.onclick = function() { toggleSelect(item, ch); };
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.className = 'channel-checkbox'; cb.checked = sel;
+        cb.onclick = function(e) { e.stopPropagation(); toggleSelect(item, ch); };
+        item.appendChild(cb);
+        var ph = document.createElement('div'); ph.className = 'channel-logo-placeholder'; ph.textContent = ch.name.charAt(0);
+        item.appendChild(ph);
+        var info = document.createElement('div'); info.className = 'channel-info';
+        info.innerHTML = '<div class="channel-name">' + escapeHtml(ch.name) + '</div><div class="channel-url" title="' + escapeHtml(ch.url) + '">' + escapeHtml(ch.url) + '</div>';
+        item.appendChild(info);
+        var badge = document.createElement('span'); badge.className = 'channel-group-badge'; badge.textContent = ch.group;
+        item.appendChild(badge);
+        items.appendChild(item);
+    });
+}
+
+// ===== 统计 =====
+function updateStats() {
+    var total = state.allChannels.length;
+    var filtered = state.filteredChannels.length;
+    var selected = state.selectedUrls.size;
+    var inFilter = state.filteredChannels.filter(function(ch) { return state.selectedUrls.has(ch.url); }).length;
+    document.getElementById('statsText').innerHTML = '共 <strong>' + total + '</strong> 个频道，显示 <strong>' + filtered + '</strong> 个，已勾选 <strong>' + selected + '</strong> 个';
+    document.getElementById('selectedInfo').innerHTML = '当前勾选 <strong>' + inFilter + '</strong> / ' + filtered + ' 个频道';
+    if (inFilter > 0) showUrls();
+    else document.getElementById('dynamicUrls').style.display = 'none';
+}
+
+// ===== M3U 链接 =====
+function showUrls() {
+    var params = new URLSearchParams();
+    var cf = state.selectedCategories.length < state.categories.length ? state.selectedCategories : [];
+    if (cf.length > 0) params.set('group', cf.join(','));
+    if (state.searchKeyword) params.set('search', state.searchKeyword);
+    var qs = params.toString();
+    var url = qs ? '/playlist.m3u?' + qs : '/playlist.m3u';
+    document.getElementById('dynamicUrls').style.display = 'block';
+    document.getElementById('urlList').innerHTML = '<div class="url-item"><span class="url-path">' + url + '</span><button class="btn btn-copy" onclick="copyUrl(\'' + window.location.origin + url + '\')">复制</button></div>';
+}
+
+// ===== 保存/修改播放列表 =====
+function savePlaylist() {
+    var name = document.getElementById('playlistName').value.trim() || '未命名列表';
+    var selected = state.filteredChannels.filter(function(ch) { return state.selectedUrls.has(ch.url); });
+    if (selected.length === 0) { toast('请先勾选要加入的频道', 'error'); return; }
+
+    var urls = selected.map(function(ch) { return ch.url; });
+
+    if (state.editingPlaylistId) {
+        apiPut('/api/playlist/' + state.editingPlaylistId, { name: name, urls: urls }).then(function(result) {
+            if (result.success) {
+                toast('已更新: ' + result.name, 'success');
+                cancelEdit();
+                loadSavedPlaylists();
+            }
+        }).catch(function(e) { toast('更新失败: ' + e.message, 'error'); });
+    } else {
+        apiPost('/api/playlist', { name: name, urls: urls }).then(function(result) {
+            if (result.success) {
+                toast('已保存: ' + result.name + '（' + result.channelCount + ' 频道）', 'success');
+                document.getElementById('playlistName').value = '';
+                loadSavedPlaylists();
+                toast('链接: ' + window.location.origin + result.url, 'info');
+            }
+        }).catch(function(e) { toast('保存失败: ' + e.message, 'error'); });
+    }
+}
+
+// ===== 已保存播放列表 =====
+function loadSavedPlaylists() {
+    api('/api/playlists').then(function(data) {
+        state.savedPlaylists = data.playlists || [];
+        renderSaved();
+    }).catch(function() {});
+}
+function renderSaved() {
+    var c = document.getElementById('savedPlaylists');
+    if (state.savedPlaylists.length === 0) { c.innerHTML = '<div class="empty-state">暂无保存的播放列表</div>'; return; }
+    c.innerHTML = '';
+    state.savedPlaylists.forEach(function(p) {
+        var f = window.location.origin + p.url;
+        var d = document.createElement('div'); d.className = 'saved-item';
+        var activeInfo = p.activeCount !== undefined ? '<span class="saved-item-active">' + p.activeCount + '</span>/' + p.channelCount : p.channelCount + '';
+        d.innerHTML = '<div class="saved-item-header"><span class="saved-item-name">' + escapeHtml(p.name) + '</span><span class="saved-item-count">' + activeInfo + '</span></div>'
+            + '<div class="saved-item-url">' + p.url + '</div>'
+            + '<div class="saved-item-actions"><button class="btn btn-small btn-edit" onclick="editPlaylist(\'' + p.id + '\')">编辑</button>'
+            + '<button class="btn btn-copy" onclick="copyUrl(\'' + f + '\')">复制</button>'
+            + '<button class="btn btn-delete" onclick="delPlaylist(\'' + p.id + '\',\'' + escapeHtml(p.name) + '\')">删除</button></div>';
+        c.appendChild(d);
+    });
+}
+function delPlaylist(id, name) {
+    if (!confirm('确定删除"' + name + '"?')) return;
+    apiDel('/api/playlist/' + id).then(function(r) {
+        if (r.success) { toast('已删除', 'success'); if (state.editingPlaylistId === id) cancelEdit(); loadSavedPlaylists(); }
+    }).catch(function(e) { toast('删除失败: ' + e.message, 'error'); });
+}
+
+// ===== 编辑播放列表 =====
+function editPlaylist(id) {
+    if (state.allChannels.length === 0) { toast('请先等待频道数据加载完成', 'error'); return; }
+    api('/api/playlist/' + id).then(function(pl) {
+        if (!pl || !pl.urls) { toast('获取播放列表失败', 'error'); return; }
+        state.editingPlaylistId = pl.id;
+        document.getElementById('playlistName').value = pl.name;
+        state.selectedUrls = new Set(pl.urls);
+        applyFilters();
+        toast('正在编辑: ' + pl.name + '（' + pl.urls.length + ' 频道）', 'info');
+        var saveBtn = document.querySelector('.btn-full');
+        if (saveBtn) saveBtn.textContent = '保存修改';
+        var cancelBtn = document.getElementById('cancelEditBtn');
+        if (!cancelBtn) {
+            var container = saveBtn.parentNode;
+            var btn = document.createElement('button');
+            btn.id = 'cancelEditBtn';
+            btn.className = 'btn btn-full';
+            btn.style.cssText = 'margin-top:6px;background:var(--gray-100);color:var(--gray-600);border-color:var(--gray-300);';
+            btn.textContent = '取消编辑';
+            btn.onclick = cancelEdit;
+            container.insertBefore(btn, saveBtn.nextSibling);
+        }
+    }).catch(function(e) { toast('获取播放列表失败: ' + e.message, 'error'); });
+}
+
+function cancelEdit() {
+    state.editingPlaylistId = null;
+    document.getElementById('playlistName').value = '';
+    state.selectedUrls = new Set();
+    applyFilters();
+    var saveBtn = document.querySelector('.btn-full');
+    if (saveBtn) saveBtn.textContent = '保存为播放列表';
+    var cancelBtn = document.getElementById('cancelEditBtn');
+    if (cancelBtn) cancelBtn.remove();
+}
+
+// ===== 数据源管理 =====
+function loadSources() {
+    api('/api/sources').then(function(data) {
+        state.sources = data.sources || [];
+        renderSources();
+    }).catch(function() {});
+}
+function renderSources() {
+    var c = document.getElementById('sourceList');
+    if (state.sources.length === 0) { c.innerHTML = '<div class="empty-state">暂无数据源，请添加</div>'; return; }
+    c.innerHTML = '';
+    state.sources.forEach(function(s) {
+        var d = document.createElement('div'); d.className = 'source-item';
+        d.innerHTML = '<div class="source-item-info"><div class="source-item-name">' + escapeHtml(s.name) + '</div><div class="source-item-url">' + escapeHtml(s.url) + '</div></div>'
+            + '<button class="btn btn-small btn-delete" onclick="delSource(\'' + s.id + '\',\'' + escapeHtml(s.name) + '\')">删除</button>';
+        c.appendChild(d);
+    });
+}
+function addSource() {
+    var url = document.getElementById('newSourceUrl').value.trim();
+    if (!url) { toast('请输入 M3U 地址', 'error'); return; }
+    var name = document.getElementById('newSourceName').value.trim() || url;
+    apiPost('/api/sources', { url: url, name: name }).then(function(r) {
+        if (r.success) {
+            toast('数据源已添加', 'success');
+            document.getElementById('newSourceUrl').value = '';
+            document.getElementById('newSourceName').value = '';
+            state.sources = r.sources;
+            renderSources();
+            refreshData();
+        }
+    }).catch(function(e) { toast('添加失败: ' + e.message, 'error'); });
+}
+function delSource(id, name) {
+    if (!confirm('确定删除数据源"' + name + '"? 删除后将自动刷新数据。')) return;
+    apiDel('/api/sources/' + id).then(function(r) {
+        if (r.success) {
+            toast('数据源已删除', 'success');
+            state.sources = r.sources;
+            renderSources();
+            refreshData();
+        }
+    }).catch(function(e) { toast('删除失败: ' + e.message, 'error'); });
+}
+
+// ===== 刷新 =====
+function refreshData() {
+    var btn = document.getElementById('refreshBtn');
+    btn.disabled = true; btn.textContent = '刷新中...';
+    document.getElementById('statusDot').className = 'status-dot loading';
+    document.getElementById('statusText').textContent = '刷新中...';
+    apiPost('/api/refresh').then(function(result) {
+        if (result.success) { toast('数据已刷新', 'success'); loadChannels(); loadStatus(); }
+    }).catch(function(e) { toast('刷新失败: ' + e.message, 'error'); })
+    .then(function() { btn.disabled = false; btn.textContent = '刷新数据'; });
+}

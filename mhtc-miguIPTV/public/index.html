@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPTV 播放列表管理器</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>IPTV 播放列表管理器</h1>
+            <span class="source-badge" title="数据源">📡 <span id="sourceDisplay">加载中...</span></span>
+        </div>
+        <div class="header-right">
+            <span class="status-info">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">初始化中...</span>
+            </span>
+            <button class="btn btn-refresh" id="refreshBtn" onclick="refreshData()">🔄 刷新数据</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- 左侧：频道列表 -->
+        <div class="main-panel">
+            <div class="filter-bar">
+                <div class="filter-group">
+                    <label>按分类筛选</label>
+                    <div class="category-select">
+                        <button class="btn btn-small" onclick="selectAllCategories(true)">全选</button>
+                        <button class="btn btn-small" onclick="selectAllCategories(false)">清空</button>
+                    </div>
+                    <div class="category-tags" id="categoryTags"></div>
+                </div>
+                <div class="filter-search">
+                    <label for="searchInput">关键词搜索</label>
+                    <div class="search-wrapper">
+                        <input type="text" id="searchInput" placeholder="输入频道名称搜索..." oninput="onSearchInput()">
+                        <button class="btn btn-clear" onclick="clearSearch()">✕</button>
+                    </div>
+                </div>
+                <div class="filter-stats">
+                    <span id="statsText">共 <strong>0</strong> 个频道</span>
+                </div>
+            </div>
+            <div class="channel-list" id="channelList">
+                <div class="loading-message">加载频道数据中...</div>
+            </div>
+        </div>
+
+        <!-- 右侧：管理面板 -->
+        <div class="side-panel">
+
+            <!-- 数据源管理 -->
+            <div class="card">
+                <div class="card-header">数据源管理</div>
+                <div class="card-body">
+                    <div class="source-list" id="sourceList">
+                        <div class="empty-state">加载中...</div>
+                    </div>
+                    <div class="source-add-form">
+                        <input type="text" id="newSourceUrl" placeholder="输入 M3U 地址...">
+                        <div class="source-add-row">
+                            <input type="text" id="newSourceName" placeholder="名称（可选）" style="flex:1;">
+                            <button class="btn btn-primary" onclick="addSource()">添加</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 生成播放列表 -->
+            <div class="card">
+                <div class="card-header">生成播放列表</div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="playlistName">播放列表名称</label>
+                        <input type="text" id="playlistName" placeholder="例如：我的收藏">
+                    </div>
+                    <div class="form-group">
+                        <label>包含频道</label>
+                        <div class="selected-info" id="selectedInfo">请勾选频道后保存</div>
+                    </div>
+                    <button class="btn btn-primary btn-full" onclick="savePlaylist()">📋 保存为播放列表</button>
+                    <div class="dynamic-urls" id="dynamicUrls" style="display:none;">
+                        <h4>M3U 链接</h4>
+                        <div class="url-list" id="urlList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 已保存播放列表 -->
+            <div class="card">
+                <div class="card-header">已保存的播放列表</div>
+                <div class="card-body" id="savedPlaylists">
+                    <div class="empty-state">暂无保存的播放列表</div>
+                </div>
+            </div>
+
+            <!-- 数据信息 -->
+            <div class="card">
+                <div class="card-header">数据信息</div>
+                <div class="card-body info-panel">
+                    <div class="info-row">
+                        <span class="info-label">频道总数</span>
+                        <span class="info-value" id="totalChannels">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">分类数</span>
+                        <span class="info-value" id="totalCategories">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">生成分组</span>
+                        <span class="info-value">梦回唐朝</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">最后更新</span>
+                        <span class="info-value" id="lastUpdated">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">自动刷新</span>
+                        <span class="info-value">每 12 小时</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="/app.js"></script>
+</body>
+</html>

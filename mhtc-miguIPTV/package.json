@@ -1,0 +1,15 @@
+{
+  "name": "iptv-manager",
+  "version": "1.0.0",
+  "description": "IPTV 播放列表管理器 - 从 M3U 源获取频道，分类筛选生成自定义播放列表",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop iptv-manager",
+    "pm2:restart": "pm2 restart iptv-manager",
+    "pm2:status": "pm2 status",
+    "pm2:logs": "pm2 logs iptv-manager"
+  },
+  "dependencies": {}
+}
