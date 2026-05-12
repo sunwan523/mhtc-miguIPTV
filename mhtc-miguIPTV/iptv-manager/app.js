@@ -11,7 +11,10 @@ var CONFIG = {
     GROUP_NAME: '梦回唐朝',
     DATA_DIR: path.join(__dirname, 'data'),
     SOURCES_FILE: path.join(__dirname, 'data', 'sources.json'),
-    PLAYLISTS_FILE: path.join(__dirname, 'data', 'playlists.json')
+    PLAYLISTS_FILE: path.join(__dirname, 'data', 'playlists.json'),
+    URL_REPLACEMENTS: [
+        { from: 'p.mhtc.top:3000', to: '192.168.100.1:3000' }
+    ]
 };
 
 var MIME = {
@@ -28,6 +31,13 @@ var savedPlaylists = {};
 
 function ensureDir() {
     try { fs.mkdirSync(CONFIG.DATA_DIR, { recursive: true }); } catch(e) {}
+}
+
+function replaceUrl(url) {
+    CONFIG.URL_REPLACEMENTS.forEach(function(replace) {
+        url = url.replace(replace.from, replace.to);
+    });
+    return url;
 }
 
 // ===== 数据源管理 =====
@@ -105,7 +115,7 @@ function parseM3U(content) {
             m = line.match(/,([^,]+)$/);
             if (m) cur.name = m[1].trim();
         } else if ((line.indexOf('http://') === 0 || line.indexOf('https://') === 0 || line.indexOf('rtmp://') === 0) && cur) {
-            cur.url = line;
+            cur.url = replaceUrl(line);
             channels.push(cur);
             cur = null;
         }
