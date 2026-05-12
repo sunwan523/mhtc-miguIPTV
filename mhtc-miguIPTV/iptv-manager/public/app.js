@@ -69,8 +69,9 @@ function loadChannels() {
         renderCategoryTags();
         applyFilters();
     }).catch(function(e) {
+        state.isLoading = false;
         document.getElementById('channelList').innerHTML = '<div class="error-message">加载失败: ' + escapeHtml(e.message) + '</div>';
-    }).then(function() { state.isLoading = false; });
+    });
 }
 
 // ===== 分类 =====
@@ -114,6 +115,7 @@ function clearSearch() {
 
 // ===== 过滤 =====
 function applyFilters() {
+    state.isLoading = false;
     var r = state.allChannels.slice();
     if (state.selectedCategories.length > 0) r = r.filter(function(c) { return state.selectedCategories.indexOf(c.group) >= 0; });
     if (state.searchKeyword) { var kw = state.searchKeyword.toLowerCase(); r = r.filter(function(c) { return c.name.toLowerCase().indexOf(kw) >= 0; }); }
@@ -163,8 +165,27 @@ function renderChannels() {
         cb.type = 'checkbox'; cb.className = 'channel-checkbox'; cb.checked = sel;
         cb.onclick = function(e) { e.stopPropagation(); toggleSelect(item, ch); };
         item.appendChild(cb);
-        var ph = document.createElement('div'); ph.className = 'channel-logo-placeholder'; ph.textContent = ch.name.charAt(0);
-        item.appendChild(ph);
+        if (ch.tvgLogo) {
+            var img = document.createElement('img');
+            img.className = 'channel-logo';
+            img.src = ch.tvgLogo;
+            img.alt = ch.name;
+            img.onerror = function() {
+                this.style.display = 'none';
+                this.nextSibling.style.display = 'flex';
+            };
+            item.appendChild(img);
+            var ph = document.createElement('div');
+            ph.className = 'channel-logo-placeholder';
+            ph.textContent = ch.name.charAt(0);
+            ph.style.display = 'none';
+            item.appendChild(ph);
+        } else {
+            var ph = document.createElement('div');
+            ph.className = 'channel-logo-placeholder';
+            ph.textContent = ch.name.charAt(0);
+            item.appendChild(ph);
+        }
         var info = document.createElement('div'); info.className = 'channel-info';
         info.innerHTML = '<div class="channel-name">' + escapeHtml(ch.name) + '</div><div class="channel-url" title="' + escapeHtml(ch.url) + '">' + escapeHtml(ch.url) + '</div>';
         item.appendChild(info);
@@ -328,7 +349,7 @@ function addSource() {
 }
 function delSource(id, name) {
     if (!confirm('确定删除数据源"' + name + '"? 删除后将自动刷新数据。')) return;
-    apiDel('/api/sources/' + id).then(function(r) {
+    apiDel('/api/source/' + id).then(function(r) {
         if (r.success) {
             toast('数据源已删除', 'success');
             state.sources = r.sources;
