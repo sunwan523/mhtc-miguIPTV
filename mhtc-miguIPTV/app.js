@@ -10,7 +10,8 @@ var CONFIG = {
     REFRESH_INTERVAL_MS: 12 * 60 * 60 * 1000,
     GROUP_NAME: '梦回唐朝',
     DATA_DIR: path.join(__dirname, 'data'),
-    SOURCES_FILE: path.join(__dirname, 'data', 'sources.json')
+    SOURCES_FILE: path.join(__dirname, 'data', 'sources.json'),
+    PLAYLISTS_FILE: path.join(__dirname, 'data', 'playlists.json')
 };
 
 var MIME = {
@@ -45,6 +46,24 @@ function saveSources() {
     ensureDir();
     try { fs.writeFileSync(CONFIG.SOURCES_FILE, JSON.stringify(dataSources, null, 2), 'utf8'); } catch(e) {
         console.error('保存数据源失败:', e.message);
+    }
+}
+
+// ===== 播放列表持久化 =====
+function loadPlaylists() {
+    ensureDir();
+    try {
+        var raw = fs.readFileSync(CONFIG.PLAYLISTS_FILE, 'utf8');
+        savedPlaylists = JSON.parse(raw);
+        console.log('已加载 ' + Object.keys(savedPlaylists).length + ' 个播放列表');
+    } catch(e) {
+        savedPlaylists = {};
+    }
+}
+function savePlaylists() {
+    ensureDir();
+    try { fs.writeFileSync(CONFIG.PLAYLISTS_FILE, JSON.stringify(savedPlaylists, null, 2), 'utf8'); } catch(e) {
+        console.error('保存播放列表失败:', e.message);
     }
 }
 
@@ -362,6 +381,7 @@ function handleRequest(req, res) {
                 channelCount: result.length,
                 createdAt: new Date().toISOString()
             };
+            savePlaylists();
             sendJSON(res, 200, { success: true, id: id, name: body.name || id, url: '/playlist/' + id + '.m3u', channelCount: result.length });
         });
     }
@@ -386,7 +406,7 @@ function handleRequest(req, res) {
                 pl.urls = body.urls;
                 pl.channelCount = body.urls.length;
             }
-            // 如果改了名称，可能同时需要更新 ID
+            savePlaylists();
             sendJSON(res, 200, { success: true, id: putId, name: pl.name, url: '/playlist/' + putId + '.m3u', channelCount: pl.channelCount });
         });
     }
@@ -404,6 +424,7 @@ function handleRequest(req, res) {
         var delId = decodeURIComponent(p.substring('/api/playlist/'.length));
         if (delId && savedPlaylists[delId]) {
             delete savedPlaylists[delId];
+            savePlaylists();
             console.log('已删除: ' + delId);
             return sendJSON(res, 200, { success: true });
         }
@@ -439,6 +460,7 @@ function handleRequest(req, res) {
 
 // ===== 启动 =====
 loadSources();
+loadPlaylists();
 fetchAll().then(function() {
     if (cache.error) console.log('离线模式启动');
 }).catch(function() {});
